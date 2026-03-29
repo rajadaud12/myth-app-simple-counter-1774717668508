@@ -2,7 +2,7 @@ name: MYTH Build System
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'project-*']
   workflow_dispatch:
     inputs:
       build_type:
@@ -29,7 +29,7 @@ jobs:
             ${{ runner.os }}-pub-
 
       - name: Cache Gradle
-        if: github.event.inputs.build_type == 'apk'
+        if: github.event.inputs.build_type == 'apk' || github.event_name == 'push'
         uses: actions/cache@v4
         with:
           path: |
@@ -45,31 +45,33 @@ jobs:
           channel: "stable"
           cache: true
 
-      - name: Initialize / Repair Project
+      - name: Initialize Project
         run: |
-          # Backup current work
           mkdir -p .backup
           cp -r lib .backup/ || true
           cp pubspec.yaml .backup/ || true
           
-          # Generate missing infrastructure (web, android)
-          flutter create . --platforms=web,android --project-name=app --overwrite
+          # Target only the platform needed for speed
+          TARGET="${{ github.event.inputs.build_type }}"
+          if [ -z "$TARGET" ]; then TARGET="web"; fi
           
-          # Restore user code
+          PLATFORM="web"
+          if [ "$TARGET" == "apk" ]; then PLATFORM="android"; fi
+          
+          flutter create . --platforms=$PLATFORM --project-name=app --overwrite
+          
           cp -r .backup/lib . || true
           cp .backup/pubspec.yaml . || true
-          
           flutter pub get
 
       - name: Build
         run: |
-          # Default to web if empty or web
           TARGET="${{ github.event.inputs.build_type }}"
           if [ -z "$TARGET" ]; then TARGET="web"; fi
           
           if [ "$TARGET" == "web" ]; then
-            flutter build web --release --base-href "/${{ github.event.repository.name }}/"
-            # 💉 Inject Capture System
+            # Fix base-href for subdirectory hosting
+            flutter build web --release --base-href "/${{ github.event.repository.name }}/previews/${{ github.ref_name }}/"
             echo "PHNjcmlwdD4KICB3aW5kb3cuYWRkRXZlbnRMaXN0ZW5lcigibWVzc2FnZSIsIGUgPT4gewogICAgaWYgKGUuZGF0YSA9PT0gImNhcHR1cmUtc2NyZWVuc2hvdCIpIHsKICAgICAgKGFzeW5jICgpID0+IHsKICAgICAgICBjb25zdCBnZXRDYW52YXMgPSAoKSA9PiAKICAgICAgICAgIGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoImNhbnZhcyIpIHx8IAogICAgICAgICAgZG9jdW1lbnQucXVlcnlTZWxlY3RvcigiZmx0LWdsYXNzLXBhbmUiKT8uc2hhZG93Um9vdD8ucXVlcnlTZWxlY3RvcigiY2FudmFzIikgfHwgCiAgICAgICAgICBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKCJmbHQtc2NlbmUtaG9zdCIpPy5zaGFkb3dSb290Py5xdWVyeVNlbGVjdG9yKCJjYW52YXMiKTsKICAgICAgICAKICAgICAgICBjb25zdCBjYW52YXMgPSBnZXRDYW52YXMoKTsKICAgICAgICBpZiAoY2FudmFzKSB7CiAgICAgICAgICB0cnkgewogICAgICAgICAgICBjb25zdCBkYXRhVXJsID0gY2FudmFzLnRvRGF0YVVSTCgiaW1hZ2UvcG5nIik7CiAgICAgICAgICAgIHdpbmRvdy5wYXJlbnQucG9zdE1lc3NhZ2UoeyB0eXBlOiAic2NyZWVuc2hvdC1yZXN1bHQiLCBkYXRhVXJsIH0sICIqIik7CiAgICAgICAgICB9IGNhdGNoIChlcnIpIHsKICAgICAgICAgICAgd2luZG93LnBhcmVudC5wb3N0TWVzc2FnZSh7IHR5cGU6ICJzY3JlZW5zaG90LWVycm9yIiwgZXJyb3I6IGVyci5tZXNzYWdlIH0sICIqIik7CiAgICAgICAgICB9CiAgICAgICAgfSBlbHNlIHsKICAgICAgICAgIHdpbmRvdy5wYXJlbnQucG9zdE1lc3NhZ2UoeyB0eXBlOiAic2NyZWVuc2hvdC1lcnJvciIsIGVycm9yOiAiQ2FudmFzIG5vdCBmb3VuZCIgfSwgIioiKTsKICAgICAgICB9CiAgICAgIH0pKCk7CiAgICB9CiAgfSk7CgogIHdpbmRvdy5hZGRFdmVudExpc3RlbmVyKCJsb2FkIiwgKCkgPT4gewogICAgbGV0IGF0dGVtcHRzID0gMDsKICAgIGNvbnN0IHRyeUNhcHR1cmUgPSAoKSA9PiB7CiAgICAgIGNvbnN0IGNhbnZhcyA9IGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoImNhbnZhcyIpIHx8IAogICAgICAgICAgICAgICAgICAgICBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKCJmbHQtZ2xhc3MtcGFuZSIpPy5zaGFkb3dSb290Py5xdWVyeVNlbGVjdG9yKCJjYW52YXMiKTsKICAgICAgaWYgKGNhbnZhcykgewogICAgICAgIHNldFRpbWVvdXQoKCkgPT4gewogICAgICAgICAgdHJ5IHsKICAgICAgICAgICAgY29uc3QgZGF0YVVybCA9IGNhbnZhcy50b0RhdGFVUkwoImltYWdlL3BuZyIpOwogICAgICAgICAgICB3aW5kb3cucGFyZW50LnBvc3RNZXNzYWdlKHsgdHlwZTogInNjcmVlbnNob3QtcmVzdWx0IiwgZGF0YVVybCB9LCAiKiIpOwogICAgICAgICAgfSBjYXRjaCAoZSkge30KICAgICAgICB9LCAyMDAwKTsKICAgICAgfSBlbHNlIGlmIChhdHRlbXB0cyA8IDE1KSB7CiAgICAgICAgYXR0ZW1wdHMrKzsKICAgICAgICBzZXRUaW1lb3V0KHRyeUNhcHR1cmUsIDEwMDApOwogICAgICB9CiAgICB9OwogICAgc2V0VGltZW91dCh0cnlDYXB0dXJlLCA1MDAwKTsKICB9KTsKPC9zY3JpcHQ+" | base64 -d > capture_script.html
             node -e "const fs = require('fs'); const path = 'build/web/index.html'; let html = fs.readFileSync(path, 'utf8'); const script = fs.readFileSync('capture_script.html', 'utf8'); html = html.replace('</body>', script + '</body>'); fs.writeFileSync(path, html);"
           else
@@ -84,23 +86,27 @@ jobs:
             build/web
             build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Upload Pages Artifact
+      - name: Deploy to GitHub Preview
         if: github.event.inputs.build_type == 'web' || github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: build/web
-
-  deploy:
-    if: github.event.inputs.build_type == 'web' || github.event_name == 'push'
-    needs: build
-    permissions:
-      pages: write      # to deploy to Pages
-      id-token: write   # to verify the deployment source is legitimate
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Use a temporary folder to manage gh-pages
+          git clone --depth 1 --branch gh-pages https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-dir || mkdir gh-pages-dir
+          
+          cd gh-pages-dir
+          if [ ! -d ".git" ]; then
+            git init
+            git checkout -b gh-pages
+            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          fi
+          
+          # Create subdirectory for this project branch
+          mkdir -p previews/${{ github.ref_name }}
+          rm -rf previews/${{ github.ref_name }}/*
+          cp -r ../build/web/* previews/${{ github.ref_name }}/
+          
+          git add .
+          git commit -m "Deploy preview for ${{ github.ref_name }}" || echo "No changes to commit"
+          git push origin gh-pages
